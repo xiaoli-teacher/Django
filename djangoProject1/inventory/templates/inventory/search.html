@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>商品搜索</title>
+    <style>
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .search-box {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        .search-input {
+            flex: 1;
+            padding: 8px;
+            font-size: 16px;
+        }
+        .search-button {
+            padding: 8px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .search-button:hover {
+            background-color: #0056b3;
+        }
+        .product-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .product-table th, .product-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        .product-table th {
+            background-color: #f8f9fa;
+        }
+        .pagination {
+            margin-top: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+        }
+        .pagination button {
+            padding: 8px 16px;
+            border: 1px solid #ddd;
+            background-color: white;
+            cursor: pointer;
+        }
+        .pagination button:disabled {
+            background-color: #f8f9fa;
+            cursor: not-allowed;
+        }
+        .pagination button.active {
+            background-color: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+        .buy-button {
+            padding: 6px 12px;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .buy-button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .buy-button:hover:not(:disabled) {
+            background-color: #218838;
+        }
+        .error-message {
+            color: #dc3545;
+            margin-top: 10px;
+        }
+        .success-message {
+            color: #28a745;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="search-box">
+            <input type="text" id="searchInput" class="search-input" placeholder="输入商品名称搜索...">
+            <button onclick="searchProducts()" class="search-button">搜索</button>
+        </div>
+        <div id="message"></div>
+        <table class="product-table">
+            <thead>
+                <tr>
+                    <th>商品名称</th>
+                    <th>价格</th>
+                    <th>库存</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="productList">
+            </tbody>
+        </table>
+        <div class="pagination" id="pagination">
+        </div>
+    </div>
+
+    <script>
+        let currentPage = 1;
+        const perPage = 10;
+
+        function searchProducts(page = 1) {
+            const query = document.getElementById('searchInput').value;
+            currentPage = page;
+            
+            fetch(`/api/inventory/search/?query=${encodeURIComponent(query)}&page=${page}&per_page=${perPage}`)
+                .then(response => response.json())
+                .then(data => {
+                    const productList = document.getElementById('productList');
+                    productList.innerHTML = '';
+                    
+                    data.products.forEach(product => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td>${product.name}</td>
+                            <td>￥${product.price}</td>
+                            <td>${product.inventory}</td>
+                            <td>
+                                <button 
+                                    onclick="buyProduct(${product.id})" 
+                                    class="buy-button"
+                                    ${product.inventory <= 0 ? 'disabled' : ''}
+                                >
+                                    ${product.inventory <= 0 ? '库存不足' : '购买'}
+                                </button>
+                            </td>
+                        `;
+                        productList.appendChild(row);
+                    });
+
+                    updatePagination(data.total_pages, data.current_page);
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showMessage('搜索失败，请稍后重试', 'error');
+                });
+        }
+
+        function buyProduct(productId) {
+            fetch('/api/inventory/reserve/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: `product_id=${productId}&quantity=1`
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showMessage(data.error, 'error');
+                } else {
+                    showMessage('购买成功！', 'success');
+                    // 刷新商品列表
+                    searchProducts(currentPage);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showMessage('购买失败，请稍后重试', 'error');
+            });
+        }
+
+        function showMessage(message, type) {
+            const messageDiv = document.getElementById('message');
+            messageDiv.textContent = message;
+            messageDiv.className = type === 'error' ? 'error-message' : 'success-message';
+            
+            // 3秒后清除消息
+            setTimeout(() => {
+                messageDiv.textContent = '';
+                messageDiv.className = '';
+            }, 3000);
+        }
+
+        function updatePagination(totalPages, currentPage) {
+            const pagination = document.getElementById('pagination');
+            pagination.innerHTML = '';
+
+            // 上一页按钮
+            const prevButton = document.createElement('button');
+            prevButton.textContent = '上一页';
+            prevButton.disabled = currentPage === 1;
+            prevButton.onclick = () => searchProducts(currentPage - 1);
+            pagination.appendChild(prevButton);
+
+            // 页码按钮
+            for (let i = 1; i <= totalPages; i++) {
+                const pageButton = document.createElement('button');
+                pageButton.textContent = i;
+                pageButton.className = i === currentPage ? 'active' : '';
+                pageButton.onclick = () => searchProducts(i);
+                pagination.appendChild(pageButton);
+            }
+
+            // 下一页按钮
+            const nextButton = document.createElement('button');
+            nextButton.textContent = '下一页';
+            nextButton.disabled = currentPage === totalPages;
+            nextButton.onclick = () => searchProducts(currentPage + 1);
+            pagination.appendChild(nextButton);
+        }
+
+        // 获取CSRF Token
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+
+        // 页面加载时执行搜索
+        document.addEventListener('DOMContentLoaded', () => searchProducts());
+
+        // 添加回车键搜索功能
+        document.getElementById('searchInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                searchProducts();
+            }
+        });
+    </script>
+</body>
+</html> 
